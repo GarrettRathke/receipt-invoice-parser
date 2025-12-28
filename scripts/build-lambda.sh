@@ -1,0 +1,33 @@
+#!/bin/bash
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+LAMBDA_DIR="$PROJECT_ROOT/infrastructure/lambda"
+TERRAFORM_DIR="$PROJECT_ROOT/infrastructure/terraform"
+
+echo "🔨 Building Lambda handler..."
+cd "$LAMBDA_DIR"
+
+# Clean previous builds
+rm -rf bin obj handler.zip
+
+# Restore and build
+echo "📦 Restoring dependencies..."
+dotnet restore
+
+echo "🔨 Building handler..."
+dotnet build -c Release
+
+# Publish as self-contained
+echo "📦 Publishing handler..."
+dotnet publish -c Release -o publish --self-contained false --no-restore
+
+# Create deployment package
+echo "📦 Creating deployment package..."
+cd publish
+zip -r ../handler.zip . -x "*.pdb"
+cd ..
+
+echo "✅ Lambda handler packaged: handler.zip"
+echo "📍 Size: $(ls -lh handler.zip | awk '{print $5}')"

@@ -1,0 +1,10 @@
+lambda/bin/*
+lambda/obj/*
+lambda/publish/*
+lambda/handler.zip
+
+terraform/.terraform/*
+tfplan
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
