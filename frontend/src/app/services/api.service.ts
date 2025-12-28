@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable } from 'rxjs';
+import { Observable, timeout } from 'rxjs';
 import { HelloWorldResponse } from '../models/hello-world-response.model';
 
 export interface ReceiptExtractionResponse {
@@ -30,7 +30,9 @@ export class ApiService {
   extractReceiptData(file: File): Observable<ReceiptExtractionResponse> {
     const formData = new FormData();
     formData.append('file', file);
-    
-    return this.http.post<ReceiptExtractionResponse>(`${this.receiptUrl}/extract`, formData);
+
+    return this.http
+      .post<ReceiptExtractionResponse>(`${this.receiptUrl}/extract`, formData)
+      .pipe(timeout(30000)); // 30 second timeout
   }
 }

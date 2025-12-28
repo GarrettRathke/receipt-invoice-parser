@@ -1,6 +1,8 @@
 using HelloWorld.Api.Models;
 using Microsoft.Extensions.Options;
 using System.Text.Json;
+using OpenAI;
+using OpenAI.Chat;
 
 namespace HelloWorld.Api.Services;
 
@@ -8,11 +10,13 @@ public class OpenAIService : IOpenAIService
 {
     private readonly OpenAISettings _settings;
     private readonly ILogger<OpenAIService> _logger;
+    private readonly OpenAIClient _openAIClient;
 
     public OpenAIService(IOptions<OpenAISettings> settings, ILogger<OpenAIService> logger)
     {
         _settings = settings.Value;
         _logger = logger;
+        _openAIClient = new OpenAIClient(_settings.ApiKey);
     }
 
     public async Task<ReceiptExtractionResponse> ExtractReceiptDataAsync(IFormFile imageFile)
@@ -21,45 +25,63 @@ public class OpenAIService : IOpenAIService
         {
             _logger.LogInformation("Processing receipt image: {FileName}", imageFile.FileName);
 
-            // For now, return mock data until OpenAI API key is configured
+            // Check if OpenAI API key is configured
             if (string.IsNullOrEmpty(_settings.ApiKey) || _settings.ApiKey == "your-openai-api-key-here")
             {
                 _logger.LogWarning("OpenAI API key not configured, returning mock data");
-                
-                var mockData = new Dictionary<string, object>
+                return await GenerateMockDataAsync();
+            }
+
+            // Convert image to base64
+            var base64Image = await ConvertToBase64Async(imageFile);
+            var mimeType = GetMimeType(imageFile.ContentType);
+
+            // Create the vision chat completion request
+            var messages = new List<ChatMessage>
+            {
+                new UserChatMessage(new List<ChatMessageContentPart>
                 {
-                    ["business_name"] = "Demo Coffee Shop",
-                    ["date"] = DateTime.Now.ToString("yyyy-MM-dd"),
-                    ["time"] = DateTime.Now.ToString("HH:mm"),
-                    ["total"] = "15.47",
-                    ["item_1"] = "Large Coffee - $4.50",
-                    ["item_2"] = "Blueberry Muffin - $3.25",
-                    ["item_3"] = "Sandwich - $7.72",
-                    ["subtotal"] = "15.47",
-                    ["tax"] = "0.00",
-                    ["payment_method"] = "Credit Card",
-                    ["receipt_number"] = "12345",
-                    ["note"] = "Mock data - configure OpenAI API key for real extraction"
-                };
+                    ChatMessageContentPart.CreateTextPart(CreateExtractionPrompt()),
+                    ChatMessageContentPart.CreateImagePart(BinaryData.FromBytes(Convert.FromBase64String(base64Image)), mimeType)
+                })
+            };
+
+            var chatRequest = new ChatCompletionOptions
+            {
+                MaxTokens = _settings.MaxTokens,
+                Temperature = (float)_settings.Temperature,
+            };
+
+            foreach (var message in messages)
+            {
+                chatRequest.Messages.Add(message);
+            }
+
+            _logger.LogInformation("Sending request to OpenAI Vision API");
+
+            // Call OpenAI API
+            var response = await _openAIClient.GetChatClient(_settings.Model).CompleteChatAsync(chatRequest);
+
+            if (response?.Value?.Content?.Count > 0)
+            {
+                var content = response.Value.Content[0].Text;
+                var extractedData = ParseExtractionResponse(content);
+
+                _logger.LogInformation("Successfully extracted data from receipt");
 
                 return new ReceiptExtractionResponse(
-                    mockData,
+                    extractedData,
                     "Success",
                     DateTime.UtcNow
                 );
             }
 
-            // TODO: Implement real OpenAI Vision API when API key is configured
-            // For now, return an error message prompting for API key configuration
+            _logger.LogWarning("No content received from OpenAI API");
             return new ReceiptExtractionResponse(
-                new Dictionary<string, object>
-                {
-                    ["message"] = "OpenAI Vision API integration requires configuration",
-                    ["instruction"] = "Set your OpenAI API key in appsettings.Development.json"
-                },
+                new Dictionary<string, object> { ["message"] = "No content extracted from image" },
                 "Error",
                 DateTime.UtcNow,
-                "OpenAI API key not properly configured"
+                "No content received from OpenAI API"
             );
         }
         catch (Exception ex)
@@ -72,6 +94,42 @@ public class OpenAIService : IOpenAIService
                 ex.Message
             );
         }
+    }
+
+    private async Task<ReceiptExtractionResponse> GenerateMockDataAsync()
+    {
+        var mockData = new Dictionary<string, object>
+        {
+            ["business_name"] = "Demo Coffee Shop",
+            ["date"] = DateTime.Now.ToString("yyyy-MM-dd"),
+            ["time"] = DateTime.Now.ToString("HH:mm"),
+            ["total"] = "15.47",
+            ["item_1"] = "Large Coffee - $4.50",
+            ["item_2"] = "Blueberry Muffin - $3.25",
+            ["item_3"] = "Sandwich - $7.72",
+            ["subtotal"] = "15.47",
+            ["tax"] = "0.00",
+            ["payment_method"] = "Credit Card",
+            ["receipt_number"] = "12345",
+            ["note"] = "Mock data - configure OpenAI API key for real extraction"
+        };
+
+        return new ReceiptExtractionResponse(
+            mockData,
+            "Success",
+            DateTime.UtcNow
+        );
+    }
+
+    private static string GetMimeType(string contentType)
+    {
+        return contentType switch
+        {
+            "image/png" => "image/png",
+            "image/jpeg" => "image/jpeg",
+            "image/jpg" => "image/jpeg",
+            _ => "image/jpeg"
+        };
     }
 
     private async Task<string> ConvertToBase64Async(IFormFile file)

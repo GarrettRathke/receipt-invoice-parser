@@ -4,6 +4,9 @@ A simple application demonstrating a modern monorepo setup with .NET 10 Web API 
 is a proof-of-concept receipt / invoice parser. No document preprocessing is done, so the
 application only handles well-formed JPG / PNG images with good quality text.
 
+Example invoice templates taken from:
+https://www.invoicesimple.com/invoice-template/dental-invoice
+
 ## 🏗️ Architecture
 
 - **Backend**: .NET 10 Web API with Swagger documentation

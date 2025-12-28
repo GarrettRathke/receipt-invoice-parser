@@ -17,8 +17,8 @@ if ! docker info > /dev/null 2>&1; then
 fi
 
 # Check if Docker Compose is available
-if ! command -v docker-compose > /dev/null 2>&1; then
-    echo "❌ docker-compose is not available. Please install Docker Compose."
+if ! command -v docker compose > /dev/null 2>&1; then
+    echo "❌ docker compose is not available. Please install Docker Compose."
     exit 1
 fi
 
@@ -31,4 +31,4 @@ echo ""
 
 # Start services
 echo "🏗️  Building and starting services..."
-docker-compose -f docker-compose.dev.yml up --build
+docker compose -f docker-compose.dev.yml up --build

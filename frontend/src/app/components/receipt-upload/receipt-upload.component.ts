@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ApiService, ReceiptExtractionResponse } from '../../services/api.service';
 
@@ -17,7 +17,8 @@ export class ReceiptUploadComponent {
   selectedFile: File | null = null;
   previewUrl: string | null = null;
 
-  constructor(private apiService: ApiService) {}
+  // TODO: Deep-dive understanding of "Angular zones" and Angular's change detection mechanism
+  constructor(private readonly apiService: ApiService, private readonly cdr: ChangeDetectorRef) {}
 
   onFileSelected(event: Event): void {
     const target = event.target as HTMLInputElement;
@@ -39,7 +40,7 @@ export class ReceiptUploadComponent {
   onDrop(event: DragEvent): void {
     event.preventDefault();
     this.dragOver = false;
-    
+
     if (event.dataTransfer?.files && event.dataTransfer.files.length > 0) {
       this.handleFile(event.dataTransfer.files[0]);
     }
@@ -84,13 +85,29 @@ export class ReceiptUploadComponent {
 
     this.apiService.extractReceiptData(this.selectedFile).subscribe({
       next: (response) => {
+        console.log('Receipt processing successful:', response);
         this.extractionResult = response;
         this.isProcessing = false;
+        this.cdr.detectChanges();
       },
       error: (error) => {
-        this.error = 'Failed to process receipt. Please try again.';
-        this.isProcessing = false;
         console.error('Receipt processing error:', error);
+        console.error('Error status:', error.status);
+        console.error('Error message:', error.message);
+        console.error('Error details:', error.error);
+
+        if (error.status === 0) {
+          this.error = 'Network error. Please check your connection and try again.';
+        } else if (error.status >= 500) {
+          this.error = 'Server error. Please try again later.';
+        } else if (error.status === 431) {
+          this.error = 'Request too large. Please try with a smaller file.';
+        } else {
+          this.error = `Failed to process receipt (${error.status}). Please try again.`;
+        }
+
+        this.isProcessing = false;
+        this.cdr.detectChanges();
       },
     });
   }
