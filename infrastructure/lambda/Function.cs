@@ -313,10 +313,13 @@ public class Function
 
                     if (dataEnd > dataStart)
                     {
-                        var imageData = new byte[dataEnd - dataStart];
-                        Array.Copy(bodyBytes, dataStart, imageData, 0, imageData.Length);
+                        var rawImageData = new byte[dataEnd - dataStart];
+                        Array.Copy(bodyBytes, dataStart, rawImageData, 0, rawImageData.Length);
                         
-                        LambdaLogger.Log($"Extracted image: {imageData.Length} bytes, from position {dataStart} to {dataEnd}");
+                        // Trim trailing whitespace/newlines from the image data
+                        var imageData = TrimTrailingWhitespace(rawImageData);
+                        
+                        LambdaLogger.Log($"Extracted image: {imageData.Length} bytes (raw: {rawImageData.Length}), from position {dataStart} to {dataEnd}");
                         return imageData;
                     }
                 }
@@ -348,6 +351,35 @@ public class Function
             if (match) return i;
         }
         return -1;
+    }
+
+    private static byte[] TrimTrailingWhitespace(byte[] data)
+    {
+        int endIndex = data.Length - 1;
+        
+        // Trim from the end, removing whitespace bytes: \r (0x0D), \n (0x0A), space (0x20), tab (0x09)
+        while (endIndex >= 0)
+        {
+            byte b = data[endIndex];
+            if (b == 0x0D || b == 0x0A || b == 0x20 || b == 0x09)
+            {
+                endIndex--;
+            }
+            else
+            {
+                break;
+            }
+        }
+
+        if (endIndex < data.Length - 1)
+        {
+            var trimmed = new byte[endIndex + 1];
+            Array.Copy(data, 0, trimmed, 0, endIndex + 1);
+            LambdaLogger.Log($"Trimmed {data.Length - trimmed.Length} trailing whitespace bytes");
+            return trimmed;
+        }
+
+        return data;
     }
 
     private string DetectImageMimeType(byte[] imageBytes)
