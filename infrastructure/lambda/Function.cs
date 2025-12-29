@@ -254,65 +254,79 @@ public class Function
     {
         try
         {
-            var boundaryBytes = Encoding.UTF8.GetBytes($"--{boundary}");
+            var boundaryBytes = Encoding.UTF8.GetBytes($"\r\n--{boundary}");
+            var boundaryBytesLf = Encoding.UTF8.GetBytes($"\n--{boundary}");
             var doubleCrlfBytes = Encoding.UTF8.GetBytes("\r\n\r\n");
             var doubleLfBytes = Encoding.UTF8.GetBytes("\n\n");
-            var crlfBytes = Encoding.UTF8.GetBytes("\r\n");
-            var lfBytes = Encoding.UTF8.GetBytes("\n");
 
-            // Find all boundary positions
-            var parts = new List<(int start, int end)>();
+            // Find all parts by looking for boundaries
             var currentPos = 0;
-
+            
             while (currentPos < bodyBytes.Length)
             {
-                var boundaryPos = FindBytes(bodyBytes, boundaryBytes, currentPos);
-                if (boundaryPos == -1) break;
+                // Find the part with filename=
+                var filenamePos = FindBytes(bodyBytes, Encoding.UTF8.GetBytes("filename="), currentPos);
+                if (filenamePos == -1) break;
 
-                var nextBoundaryPos = FindBytes(bodyBytes, boundaryBytes, boundaryPos + boundaryBytes.Length);
-                if (nextBoundaryPos == -1) nextBoundaryPos = bodyBytes.Length;
-
-                parts.Add((boundaryPos, nextBoundaryPos));
-                currentPos = nextBoundaryPos;
-            }
-
-            // Find the part with the image
-            foreach (var (partStart, partEnd) in parts)
-            {
-                var partBytes = new byte[partEnd - partStart];
-                Array.Copy(bodyBytes, partStart, partBytes, 0, partBytes.Length);
-                var partString = Encoding.UTF8.GetString(partBytes);
-
-                if (partString.Contains("filename="))
+                // Find header end after filename
+                var headerEndCrlf = FindBytes(bodyBytes, doubleCrlfBytes, filenamePos);
+                var headerEndLf = FindBytes(bodyBytes, doubleLfBytes, filenamePos);
+                
+                int headerEnd = -1;
+                int dataStartOffset = 0;
+                
+                if (headerEndCrlf >= 0 && (headerEndLf < 0 || headerEndCrlf < headerEndLf))
                 {
-                    // Find header end
-                    var headerEndIndex = FindBytes(partBytes, doubleCrlfBytes, 0);
-                    if (headerEndIndex == -1) headerEndIndex = FindBytes(partBytes, doubleLfBytes, 0);
+                    headerEnd = headerEndCrlf;
+                    dataStartOffset = 4; // length of \r\n\r\n
+                }
+                else if (headerEndLf >= 0)
+                {
+                    headerEnd = headerEndLf;
+                    dataStartOffset = 2; // length of \n\n
+                }
 
-                    if (headerEndIndex != -1)
+                if (headerEnd != -1)
+                {
+                    var dataStart = headerEnd + dataStartOffset;
+
+                    // Find the next boundary to determine where data ends
+                    var nextBoundaryCrlf = FindBytes(bodyBytes, boundaryBytes, dataStart);
+                    var nextBoundaryLf = FindBytes(bodyBytes, boundaryBytesLf, dataStart);
+                    
+                    int dataEnd = -1;
+                    if (nextBoundaryCrlf >= 0 && (nextBoundaryLf < 0 || nextBoundaryCrlf < nextBoundaryLf))
                     {
-                        var dataStart = headerEndIndex == FindBytes(partBytes, doubleCrlfBytes, 0) ? headerEndIndex + 4 : headerEndIndex + 2;
+                        dataEnd = nextBoundaryCrlf;
+                    }
+                    else if (nextBoundaryLf >= 0)
+                    {
+                        dataEnd = nextBoundaryLf;
+                    }
+                    else
+                    {
+                        // Last boundary might be --boundary-- at the end
+                        var endBoundary = Encoding.UTF8.GetBytes($"--{boundary}--");
+                        var endBoundaryPos = FindBytes(bodyBytes, endBoundary, dataStart);
+                        dataEnd = endBoundaryPos >= 0 ? endBoundaryPos : bodyBytes.Length;
+                    }
 
-                        // Find data end (before next boundary or end of part)
-                        var dataEnd = FindBytes(partBytes, crlfBytes, dataStart);
-                        if (dataEnd == -1) dataEnd = FindBytes(partBytes, lfBytes, dataStart);
-                        if (dataEnd == -1) dataEnd = partBytes.Length;
-
-                        if (dataEnd > dataStart)
-                        {
-                            var imageData = new byte[dataEnd - dataStart];
-                            Array.Copy(partBytes, dataStart, imageData, 0, imageData.Length);
-                            
-                            LambdaLogger.Log($"Extracted image: {imageData.Length} bytes");
-                            return imageData;
-                        }
+                    if (dataEnd > dataStart)
+                    {
+                        var imageData = new byte[dataEnd - dataStart];
+                        Array.Copy(bodyBytes, dataStart, imageData, 0, imageData.Length);
+                        
+                        LambdaLogger.Log($"Extracted image: {imageData.Length} bytes, from position {dataStart} to {dataEnd}");
+                        return imageData;
                     }
                 }
+
+                currentPos = filenamePos + 10;
             }
         }
         catch (Exception ex)
         {
-            LambdaLogger.Log($"Error extracting image from multipart bytes: {ex.Message}");
+            LambdaLogger.Log($"Error extracting image from multipart bytes: {ex.Message}\n{ex.StackTrace}");
         }
 
         return null;
